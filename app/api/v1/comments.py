@@ -2,10 +2,11 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from ...database import get_db
-from ...crud import comment as crud_comment, task as crud_task
+from ...crud import comment as crud_comment, task as crud_task, board as crud_board
 from ...schemas.comment import Comment, CommentCreate, CommentUpdate
 from ...models.user import User
 from ..deps import get_current_active_user
+from ...services.telegram_service import telegram_service
 
 router = APIRouter()
 
@@ -23,6 +24,33 @@ async def create_comment(
         raise HTTPException(status_code=404, detail="Task not found")
     
     comment = await crud_comment.create_with_user(db, obj_in=comment_in, user_id=current_user.id)
+    
+    # Send Telegram notification to task creator
+    if task.creator_id and task.creator_id != current_user.id:
+        creator = await crud_board.get_user_by_id(db, id=task.creator_id)
+        if creator and creator.telegram_chat_id:
+            board = await crud_board.get(db, id=task.board_id)
+            await telegram_service.send_comment_notification(
+                creator.telegram_chat_id,
+                task.title,
+                current_user.full_name or current_user.username,
+                comment.text,
+                board.name
+            )
+    
+    # Send Telegram notification to assigned user if different from creator
+    if task.assigned_to_id and task.assigned_to_id != current_user.id and task.assigned_to_id != task.creator_id:
+        assigned_user = await crud_board.get_user_by_id(db, id=task.assigned_to_id)
+        if assigned_user and assigned_user.telegram_chat_id:
+            board = await crud_board.get(db, id=task.board_id)
+            await telegram_service.send_comment_notification(
+                assigned_user.telegram_chat_id,
+                task.title,
+                current_user.full_name or current_user.username,
+                comment.text,
+                board.name
+            )
+    
     return comment
 
 

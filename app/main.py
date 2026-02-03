@@ -7,7 +7,13 @@ from .core.config import settings
 from .database import get_db, engine, Base
 from .api.v1 import api_router
 from .websockets.manager import manager
+from .services.telegram_service import telegram_service
 import os
+import logging
+import asyncio
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -39,6 +45,26 @@ async def startup():
     
     # Create uploads directory
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    
+    # Initialize and start Telegram bot
+    try:
+        await telegram_service.initialize()
+        logger.info("Telegram service initialized")
+        # Start bot polling in background (only if token is configured)
+        if telegram_service.bot_token and telegram_service.bot_token != "":
+            asyncio.create_task(telegram_service.start_polling())
+    except Exception as e:
+        logger.error(f"Failed to start Telegram service: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Cleanup on shutdown"""
+    try:
+        await telegram_service.stop()
+        logger.info("Telegram service stopped")
+    except Exception as e:
+        logger.error(f"Error stopping Telegram service: {e}")
 
 
 @app.get("/", response_class=HTMLResponse)

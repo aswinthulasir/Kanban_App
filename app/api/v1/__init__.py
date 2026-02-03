@@ -6,6 +6,7 @@ from .columns import router as columns_router
 from .tasks import router as tasks_router
 from .comments import router as comments_router
 from .attachments import router as attachments_router
+from .telegram import router as telegram_router
 
 api_router = APIRouter()
 
@@ -16,3 +17,4 @@ api_router.include_router(columns_router, prefix="/columns", tags=["columns"])
 api_router.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
 api_router.include_router(comments_router, prefix="/comments", tags=["comments"])
 api_router.include_router(attachments_router, prefix="/attachments", tags=["attachments"])
+api_router.include_router(telegram_router)

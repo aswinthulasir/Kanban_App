@@ -3,6 +3,8 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from .base import CRUDBase
 from ..models.board import Board, BoardMember
+from ..models.column import Column
+from ..models.user import User
 from ..schemas.board import BoardCreate, BoardUpdate, BoardMemberCreate
 
 
@@ -37,6 +39,24 @@ class CRUDBoard(CRUDBase[Board, BoardCreate, BoardUpdate]):
         await db.commit()
         await db.refresh(db_obj)
         return db_obj
+
+    async def get_user_by_id(
+        self, db: AsyncSession, *, id: str
+    ) -> Optional[User]:
+        """Get user by ID"""
+        result = await db.execute(
+            select(User).filter(User.id == id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_column(
+        self, db: AsyncSession, *, id: str
+    ) -> Optional[Column]:
+        """Get column by ID"""
+        result = await db.execute(
+            select(Column).filter(Column.id == id)
+        )
+        return result.scalar_one_or_none()
 
 
 class CRUDBoardMember(CRUDBase[BoardMember, BoardMemberCreate, BoardMemberCreate]):
