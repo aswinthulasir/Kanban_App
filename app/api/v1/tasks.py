@@ -18,6 +18,9 @@ async def create_task(
     current_user: User = Depends(get_current_active_user)
 ):
     """Create a new task"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     # Check if user has access to board
     board_obj = await board.get(db, id=task_in.board_id)
     if not board_obj:
@@ -28,6 +31,79 @@ async def create_task(
             raise HTTPException(status_code=403, detail="Not enough permissions")
     
     task = await crud_task.create_with_creator(db, obj_in=task_in, creator_id=current_user.id)
+    
+    # Send task creation notifications
+    try:
+        logger.info(f"\n{'='*80}")
+        logger.info(f"📝 NEW TASK CREATED")
+        logger.info(f"{'='*80}")
+        logger.info(f"Task: {task.title}")
+        logger.info(f"Created by: {current_user.username}")
+        logger.info(f"Board: {board_obj.name}")
+        logger.info(f"Description: {task.description}")
+        logger.info(f"Due Date: {task.due_date}")
+        logger.info(f"Priority: {task.priority}")
+        
+        # Get column name for the task
+        column_obj = await board.get_column(db, id=task.column_id)
+        column_name = column_obj.name if column_obj else "Unknown"
+        
+        # Notify creator about their new task
+        if task.creator_id:
+            creator = await board.get_user_by_id(db, id=task.creator_id)
+            if creator and creator.telegram_chat_id:
+                message = (
+                    f"📝 <b>You Created a New Task</b>\n\n"
+                    f"<b>Task:</b> {task.title}\n"
+                    f"<b>Column:</b> {column_name}\n"
+                    f"<b>Board:</b> {board_obj.name}\n"
+                    f"<b>Description:</b> {task.description or 'No description'}\n"
+                    f"<b>Due Date:</b> {task.due_date or 'No due date'}\n"
+                    f"<b>Priority:</b> {task.priority or 'Normal'}"
+                )
+                logger.info(f"✅ Sending task creation notification to creator {creator.username}")
+                await telegram_service.send_notification(creator.telegram_chat_id, message)
+        
+        # Notify board owner if different from creator
+        if board_obj.owner_id and board_obj.owner_id != current_user.id:
+            owner = await board.get_user_by_id(db, id=board_obj.owner_id)
+            if owner and owner.telegram_chat_id:
+                message = (
+                    f"📝 <b>New Task Created</b>\n\n"
+                    f"<b>Task:</b> {task.title}\n"
+                    f"<b>Created by:</b> {current_user.full_name or current_user.username}\n"
+                    f"<b>Column:</b> {column_name}\n"
+                    f"<b>Board:</b> {board_obj.name}\n"
+                    f"<b>Description:</b> {task.description or 'No description'}\n"
+                    f"<b>Due Date:</b> {task.due_date or 'No due date'}\n"
+                    f"<b>Priority:</b> {task.priority or 'Normal'}"
+                )
+                logger.info(f"✅ Sending task creation notification to board owner {owner.username}")
+                await telegram_service.send_notification(owner.telegram_chat_id, message)
+        
+        # Notify assigned user if any (and different from creator)
+        if task.assigned_to_id and task.assigned_to_id != current_user.id:
+            assigned_user = await board.get_user_by_id(db, id=task.assigned_to_id)
+            if assigned_user and assigned_user.telegram_chat_id:
+                message = (
+                    f"📝 <b>New Task Assigned to You</b>\n\n"
+                    f"<b>Task:</b> {task.title}\n"
+                    f"<b>Created by:</b> {current_user.full_name or current_user.username}\n"
+                    f"<b>Column:</b> {column_name}\n"
+                    f"<b>Board:</b> {board_obj.name}\n"
+                    f"<b>Description:</b> {task.description or 'No description'}\n"
+                    f"<b>Due Date:</b> {task.due_date or 'No due date'}\n"
+                    f"<b>Priority:</b> {task.priority or 'Normal'}"
+                )
+                logger.info(f"✅ Sending task creation notification to assigned user {assigned_user.username}")
+                await telegram_service.send_notification(assigned_user.telegram_chat_id, message)
+        
+        logger.info(f"{'='*80}\n")
+    except Exception as e:
+        logger.error(f"❌ Error sending task creation notification: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+    
     return task
 
 
@@ -123,9 +199,17 @@ async def update_task(
             logger.info(f"   Creator Telegram ID: {creator.telegram_chat_id if creator else 'N/A'}")
             
             if creator and creator.telegram_chat_id:
+                # Get column name
+                column_obj = await board.get_column(db, id=task.column_id)
+                column_name = column_obj.name if column_obj else "Unknown"
+                
                 message = (
                     f"📝 <b>Your Task Was Updated</b>\n\n"
                     f"<b>Task:</b> {task.title}\n"
+                    f"<b>Column:</b> {column_name}\n"
+                    f"<b>Description:</b> {task.description or 'No description'}\n"
+                    f"<b>Due Date:</b> {task.due_date or 'No due date'}\n"
+                    f"<b>Priority:</b> {task.priority or 'Normal'}\n"
                     f"<b>Updated by:</b> {current_user.full_name or current_user.username}\n"
                     f"<b>Board:</b> {board_obj.name}"
                 )
@@ -144,9 +228,14 @@ async def update_task(
             logger.info(f"   Assigned User Telegram ID: {assigned_user.telegram_chat_id if assigned_user else 'N/A'}")
             
             if assigned_user and assigned_user.telegram_chat_id:
+                # Get column name
+                column_obj = await board.get_column(db, id=task.column_id)
+                column_name = column_obj.name if column_obj else "Unknown"
+                
                 message = (
                     f"📊 <b>Your Assigned Task Was Updated</b>\n\n"
                     f"<b>Task:</b> {task.title}\n"
+                    f"<b>Column:</b> {column_name}\n"
                     f"<b>Updated by:</b> {current_user.full_name or current_user.username}\n"
                     f"<b>Board:</b> {board_obj.name}"
                 )
@@ -177,6 +266,9 @@ async def delete_task(
     current_user: User = Depends(get_current_active_user)
 ):
     """Delete a task"""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     task = await crud_task.get(db, id=task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -187,5 +279,48 @@ async def delete_task(
         member = await board_member.get_member(db, board_id=board_obj.id, user_id=current_user.id)
         if not member and task.creator_id != current_user.id:
             raise HTTPException(status_code=403, detail="Not enough permissions")
+    
+    # Send task deletion notifications before deleting
+    try:
+        logger.info(f"\n{'='*80}")
+        logger.info(f"🗑️ TASK DELETED")
+        logger.info(f"{'='*80}")
+        logger.info(f"Task: {task.title}")
+        logger.info(f"Deleted by: {current_user.username}")
+        logger.info(f"Board: {board_obj.name}")
+        
+        # Notify task creator
+        if task.creator_id:
+            creator = await board.get_user_by_id(db, id=task.creator_id)
+            if creator and creator.telegram_chat_id:
+                message = (
+                    f"🗑️ <b>Task Deleted</b>\n\n"
+                    f"<b>Task:</b> {task.title}\n"
+                    f"<b>Deleted by:</b> {current_user.full_name or current_user.username}\n"
+                    f"<b>Board:</b> {board_obj.name}\n"
+                    f"<b>Description:</b> {task.description or 'No description'}"
+                )
+                logger.info(f"✅ Sending task deletion notification to creator {creator.username}")
+                await telegram_service.send_notification(creator.telegram_chat_id, message)
+        
+        # Notify assigned user
+        if task.assigned_to_id:
+            assigned_user = await board.get_user_by_id(db, id=task.assigned_to_id)
+            if assigned_user and assigned_user.telegram_chat_id:
+                message = (
+                    f"🗑️ <b>Your Assigned Task Was Deleted</b>\n\n"
+                    f"<b>Task:</b> {task.title}\n"
+                    f"<b>Deleted by:</b> {current_user.full_name or current_user.username}\n"
+                    f"<b>Board:</b> {board_obj.name}\n"
+                    f"<b>Description:</b> {task.description or 'No description'}"
+                )
+                logger.info(f"✅ Sending task deletion notification to assigned user {assigned_user.username}")
+                await telegram_service.send_notification(assigned_user.telegram_chat_id, message)
+        
+        logger.info(f"{'='*80}\n")
+    except Exception as e:
+        logger.error(f"❌ Error sending task deletion notification: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
     
     await crud_task.remove(db, id=task_id)
